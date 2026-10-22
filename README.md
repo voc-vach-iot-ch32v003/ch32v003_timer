@@ -53,7 +53,7 @@ Chớp LED không chặn mỗi 500ms:
 #include "ch32v003_gpio.h"
 #include "ch32v003_timer.h"
 
-#define LED_PIN MCU_PIN3 // PA2 trên mọi gói vỏ
+#define LED_PIN MCU_PIN3 // Chân vật lý số 3 (J4M6: PA2, A4M6: PC3, F4P6: PD6)
 
 static uint32_t lastToggleMs = 0;
 
