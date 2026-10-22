@@ -5,22 +5,23 @@
 ![Framework](https://img.shields.io/badge/Framework-ch32v003fun-green.svg)
 ![MCU](https://img.shields.io/badge/MCU-CH32V003-red.svg)
 
-Thư viện quản lý thời gian hệ thống **không chặn (Non-blocking)** cho vi điều khiển CH32V003, dựa trên bộ đếm SysTick 32-bit phần cứng của lõi RISC-V.
+Thư viện đo thời gian hệ thống **không chặn (Non-blocking)** kiểu Arduino (`millis()`, `micros()`) cho vi điều khiển CH32V003, dựa trên bộ đếm SysTick của lõi RISC-V.
 
 ---
 
 ## 🚀 Tính năng nổi bật
 
-- Đọc thời gian hệ thống theo micro-giây (`micros()`) và mili-giây (`millis()`) kể từ lúc khởi động.
-- Tính khoảng thời gian trôi qua (`elapsedUs()`, `elapsedMs()`) chuẩn xác, tự động xử lý hiện tượng tràn số (rollover) của bộ đếm 32-bit.
-- Truy cập trực tiếp giá trị tick thô (`ticks()`) khi cần độ phân giải cao nhất.
-- Không phụ thuộc ngoại vi Timer riêng, tận dụng SysTick sẵn có của `ch32fun` → không tốn thêm tài nguyên phần cứng.
+- **`millis()` / `micros()` không bị quay về 0 sau ~89 giây:** bộ đếm mili-giây 32-bit được tăng bởi ngắt so sánh SysTick mỗi 1ms, chỉ tràn sau **49.7 ngày** (`millis`) / **71.6 phút** (`micros`) giống Arduino.
+- **Tự khởi động:** lần gọi `millis()`/`micros()` đầu tiên tự bật bộ đếm; gọi `timerInit()` sớm trong `setup()` nếu muốn mốc thời gian bám sát lúc khởi động.
+- **`micros()` nhẹ:** không dùng phép nhân/chia phần mềm (CH32V003 là RV32EC, không có lệnh nhân/chia) — khoảng **180 chu kỳ máy (~3.7µs)** mỗi lần gọi.
+- **So sánh mốc thời gian an toàn khi tràn số** với `elapsedMs()` / `elapsedUs()`.
+- **Không ảnh hưởng `delayMs()` / `delayUs()`:** bộ đếm SysTick vẫn chạy tự do, chỉ dùng thêm thanh ghi so sánh.
+
+> ⚠️ Thư viện chiếm trình phục vụ ngắt `SysTick_Handler`. Không định nghĩa lại hàm này trong dự án.
 
 ---
 
-## 📦 Cài đặt
-
-Thêm dòng sau vào `platformio.ini` của dự án:
+## 📦 Cài đặt (Installation)
 
 ```ini
 lib_deps =
@@ -31,74 +32,90 @@ lib_deps =
 
 ## ⚙️ Cấu hình môi trường
 
-Thư viện sử dụng trực tiếp `FUNCONF_SYSTEM_CORE_CLOCK` từ `ch32fun`, không yêu cầu build flag riêng. Đảm bảo project đã cấu hình đúng xung nhịp hệ thống trong `funconfig.h`:
+Không cần build flag riêng. Thư viện tự thích ứng nguồn clock SysTick theo `funconfig.h`:
 
 ```c
-// funconfig.h
+// funconfig.h — khuyến nghị: SysTick chạy ở HCLK 48MHz để độ phân giải micros() tốt nhất
 #define FUNCONF_SYSTICK_USE_HCLK 1
 ```
+
+Độ chính xác tuyệt đối phụ thuộc dao động nội HSI của chip (sai số nhà sản xuất cho phép, đo được -1.0% … +0.25% trên bàn test).
 
 ---
 
 ## 📝 Code mẫu sử dụng (Quick Start)
 
-Ví dụ chớp LED không chặn (non-blocking blink) bằng `millis()` và `elapsedMs()`:
+Chớp LED không chặn mỗi 500ms:
 
 ```c
 #include "ch32fun.h"
+#include "ch32v003_delay.h"
+#include "ch32v003_gpio.h"
 #include "ch32v003_timer.h"
 
-#define LED_PIN PD6
+#define LED_PIN MCU_PIN3 // PA2 trên mọi gói vỏ
 
-static uint32_t lastToggle = 0;
-static uint8_t ledState = 0;
+static uint32_t lastToggleMs = 0;
+
+static void setup(void)
+{
+    pinMode(LED_PIN, OUTPUT);
+    timerInit(); // Không bắt buộc: millis() tự khởi động ở lần gọi đầu
+}
+
+static void loop(void)
+{
+    const uint32_t now = millis();
+    if (elapsedMs(now, lastToggleMs) >= 500)
+    {
+        lastToggleMs = now;
+        digitalToggle(LED_PIN);
+    }
+    // Các tác vụ khác vẫn chạy song song tại đây...
+}
 
 int main(void)
 {
     SystemInit();
+    delayMs(1000); // Khoảng chờ an toàn tránh brick chip
 
-    funGpioInitAll();
-    funPinMode(LED_PIN, GPIO_CFGLR_OUT_10Mhz_PP);
-
+    setup();
     while (1)
     {
-        uint32_t now = millis();
-
-        // Chớp LED mỗi 500ms mà KHÔNG dùng delay() chặn chương trình
-        if (elapsedMs(now, lastToggle) >= 500)
-        {
-            lastToggle = now;
-            ledState = !ledState;
-            funDigitalWrite(LED_PIN, ledState);
-        }
-
-        // Các tác vụ khác vẫn chạy song song tại đây...
+        loop();
     }
 }
 ```
 
 ---
 
-## 📑 Tra cứu API (API Reference)
+## 📁 Danh sách Ví dụ mẫu (Examples)
 
-### Nhóm: Đọc thời gian hệ thống
-
-| Hàm xử lý  | Tham số | Giá trị trả về | Mô tả                                               |
-| :--------- | :------ | :------------- | :-------------------------------------------------- |
-| `ticks()`  | Không   | `uint32_t`     | Số tick thô từ bộ đếm SysTick phần cứng.            |
-| `micros()` | Không   | `uint32_t`     | Số micro-giây (us) đã trôi qua kể từ lúc khởi động. |
-| `millis()` | Không   | `uint32_t`     | Số mili-giây (ms) đã trôi qua kể từ lúc khởi động.  |
-
-### Nhóm: Tính khoảng thời gian trôi qua
-
-| Hàm xử lý     | Tham số                                                         | Giá trị trả về | Mô tả                                                            |
-| :------------ | :-------------------------------------------------------------- | :------------- | :--------------------------------------------------------------- |
-| `elapsedUs()` | `current`: mốc hiện tại (từ `micros()`)<br>`start`: mốc bắt đầu | `uint32_t`     | Khoảng chênh lệch (us) giữa hai mốc thời gian, tự xử lý tràn số. |
-| `elapsedMs()` | `current`: mốc hiện tại (từ `millis()`)<br>`start`: mốc bắt đầu | `uint32_t`     | Khoảng chênh lệch (ms) giữa hai mốc thời gian, tự xử lý tràn số. |
+Thư viện tiện ích lõi: không có thư mục `examples/`, cách dùng được trình bày ở Quick Start.
 
 ---
 
-## 📄 Giấy phép & Tác giả
+## 📑 Tra cứu API (API Reference)
+
+### Khởi động & đọc thời gian
+
+| Hàm xử lý | Tham số | Giá trị trả về | Mô tả |
+| :-- | :-- | :-- | :-- |
+| `timerInit()` | Không | `void` | Bật ngắt SysTick 1ms để đếm mili-giây. Gọi nhiều lần không sao; `millis()`/`micros()` tự gọi nếu chưa bật. |
+| `millis()` | Không | `uint32_t` | Số mili-giây kể từ khi bộ đếm khởi động. Tràn sau ~49.7 ngày. |
+| `micros()` | Không | `uint32_t` | Số micro-giây kể từ khi bộ đếm khởi động. Tràn sau ~71.6 phút. |
+| `ticks()` | Không | `uint32_t` | Giá trị thô của SysTick (48MHz khi `FUNCONF_SYSTICK_USE_HCLK = 1`). Tràn sau ~89 giây, chỉ dùng đo khoảng ngắn. |
+
+### Khoảng thời gian trôi qua
+
+| Hàm xử lý | Tham số | Giá trị trả về | Mô tả |
+| :-- | :-- | :-- | :-- |
+| `elapsedMs(current, start)` | `uint32_t current`, `uint32_t start` | `uint32_t` | `current - start` (ms), đúng cả khi bộ đếm đã tràn. |
+| `elapsedUs(current, start)` | `uint32_t current`, `uint32_t start` | `uint32_t` | `current - start` (us), đúng cả khi bộ đếm đã tràn. |
+
+---
+
+## 📄 Giấy phép (License) & Tác giả
 
 - **Tác giả:** [Vọc Vạch IoT](https://github.com/voc-vach-iot)
 - **Giấy phép:** Phát hành theo giấy phép [MIT License](LICENSE).

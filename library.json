@@ -1,6 +1,6 @@
 {
   "name": "ch32v003_timer",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Thư viện quản lý thời gian hệ thống không chặn (millis, micros, ticks, elapsedMs, elapsedUs) theo phong cách Arduino cho CH32V003 dựa trên SysTick.",
   "keywords": [
     "timer",
